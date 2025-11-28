@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Earthquake Monitor</title>
+
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+<style>
+  body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #ffffff;
+    color: #222;
+  }
+
+  header {
+    padding: 15px 25px;
+    background: #2b7cff;
+    color: white;
+    font-size: 22px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  header span {
+    font-size: 14px;
+    font-weight: 300;
+  }
+
+  #container {
+    display: flex;
+    height: calc(100vh - 60px);
+  }
+
+  #map {
+    flex: 1;
+  }
+
+  #sidebar {
+    width: 300px;
+    background: #f7f7f7;
+    border-left: 1px solid #ccc;
+    padding: 20px;
+    overflow-y: auto;
+  }
+
+  #sidebar h2 {
+    font-size: 18px;
+    margin-bottom: 10px;
+    border-left: 5px solid #2b7cff;
+    padding-left: 8px;
+  }
+
+  input, select {
+    width: 100%;
+    padding: 8px;
+    border-radius: 5px;
+    border: 1px solid #aaa;
+    margin-bottom: 12px;
+    font-size: 14px;
+  }
+
+  @media (max-width: 768px) {
+    #container {
+      flex-direction: column;
+    }
+    #sidebar {
+      width: 100%;
+      height: 300px;
+    }
+    #map {
+      height: calc(100vh - 360px);
+    }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  🌍 Live Earthquake Monitor
+  <span id="userCountryName">Detecting your location...</span>
+</header>
+
+<div id="container">
+  <!-- Map -->
+  <div id="map"></div>
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <h2>Country Filter</h2>
+    <input type="text" id="searchBox" placeholder="Search country…" />
+
+    <select id="countrySelect">
+      <option value="world">🌐 World</option>
+      <option value="Bangladesh">Bangladesh</option>
+      <option value="India">India</option>
+      <option value="Nepal">Nepal</option>
+      <option value="Japan">Japan</option>
+      <option value="USA">USA</option>
+      <option value="Turkey">Turkey</option>
+      <option value="Indonesia">Indonesia</option>
+      <option value="Chile">Chile</option>
+      <option value="Italy">Italy</option>
+    </select>
+  </div>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+let map;
+let eqLayer;
+
+// Detect user country via GeoIP
+async function detectUserCountry() {
+  try {
+    let res = await fetch("https://ipapi.co/json/");
+    let data = await res.json();
+
+    document.getElementById("userCountryName").innerText = "You are in: " + data.country_name;
+
+    initMap(data.latitude, data.longitude, 6);
+
+    document.getElementById("countrySelect").value = data.country_name;
+
+    loadEarthquakes(data.country_name);
+
+  } catch (err) {
+    console.log("GeoIP failed, showing world view");
+    initMap(20, 5, 2);
+    loadEarthquakes("world");
+  }
+}
+
+function initMap(lat, lon, zoom) {
+  map = L.map("map").setView([lat, lon], zoom);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 18
+  }).addTo(map);
+
+  eqLayer = L.layerGroup().addTo(map);
+}
+
+// Load earthquakes from USGS feed
+async function loadEarthquakes(country = "world") {
+  eqLayer.clearLayers();
+
+  let res = await fetch("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson");
+  let data = await res.json();
+
+  data.features.forEach(eq => {
+    let mag = eq.properties.mag;
+    let place = eq.properties.place;
+    let coords = eq.geometry.coordinates;
+    let time = new Date(eq.properties.time).toLocaleString();
+
+    if (country !== "world" && !place.includes(country)) return;
+
+    L.circleMarker([coords[1], coords[0]], {
+      radius: mag * 2,
+      color: "red",
+      weight: 2
+    })
+    .bindPopup(`
+      <b>Location:</b> ${place}<br>
+      <b>Magnitude:</b> ${mag}<br>
+      <b>Time:</b> ${time}
+    `)
+    .addTo(eqLayer);
+  });
+}
+
+// Country dropdown change
+document.getElementById("countrySelect").onchange = function () {
+  let c = this.value;
+
+  if (c === "world") {
+    map.setView([20, 5], 2);
+    loadEarthquakes("world");
+    return;
+  }
+
+  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${c}`)
+    .then(r => r.json())
+    .then(loc => {
+      if (loc.length > 0) {
+        map.setView([loc[0].lat, loc[0].lon], 5);
+      }
+      loadEarthquakes(c);
+    });
+};
+
+// Search filter
+document.getElementById("searchBox").addEventListener("keyup", function () {
+  let filter = this.value.toLowerCase();
+  let options = countrySelect.options;
+  for (let i = 0; i < options.length; i++) {
+    options[i].style.display = options[i].text.toLowerCase().includes(filter) ? "" : "none";
+  }
+});
+
+// Auto refresh every 60 seconds
+setInterval(() => {
+  loadEarthquakes(document.getElementById("countrySelect").value);
+}, 60000);
+
+// Start
+detectUserCountry();
+</script>
+
+</body>
+</html>
